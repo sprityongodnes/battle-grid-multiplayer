@@ -58,7 +58,7 @@ if GOOGLE_CONFIGURED:
         client_kwargs={"scope": "openid email profile"},
     )
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
 
 @login_manager.user_loader
