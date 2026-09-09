@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Battle Grid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===================== LOGIN ===================== -->
+  <div id="loginScreen" class="{{ 'hidden' if authenticated else '' }}">
+    <img class="logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="Battle Grid">
+    <div class="ob-sub">Connecte-toi pour jouer en multijoueur, grimper au classement et retrouver tes statistiques.</div>
+
+    {% if google_configured %}
+    <a class="googleBtn" href="{{ url_for('login_google') }}">
+      <img src="https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png" alt="">
+      Se connecter avec Google
+    </a>
+    {% else %}
+    <form class="devLoginBox" method="POST" action="{{ url_for('login_dev') }}">
+      <input type="text" name="pseudo" placeholder="Ton pseudo" maxlength="40" required>
+      <button class="btn primary" type="submit" style="flex:none;padding:11px 30px;">Jouer</button>
+    </form>
+    <div class="devNote">Mode invité (Google OAuth non configuré côté serveur — voir README.md).</div>
+    {% endif %}
+  </div>
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="{{ 'hidden' if not authenticated else '' }}" id="mainHeader">
+    <button id="homeBtn"><img src="{{ url_for('static', filename='img/logo.png') }}" alt="Battle Grid"></button>
+    <div class="headerBtns">
+      <button class="profileChip" id="profileChip">
+        <img class="avatar" id="profileAvatar" src="" alt="">
+        <img class="rankBadge" id="profileRankBadge" src="" alt="">
+        <span id="profileName">-</span>
+      </button>
+      <button class="iconBtn" id="fleetBtn" style="display:none;">🚢</button>
+      <button class="iconBtn" id="journalBtn" style="display:none;">🕘</button>
+      <button class="iconBtn" id="soundBtn">🔊</button>
+      <button class="iconBtn" id="logoutBtn" title="Déconnexion">⎋</button>
+    </div>
+  </header>
+
+  <div id="scrollBody" class="{{ 'hidden' if not authenticated else '' }}">
+
+    <!-- ===================== MENU PRINCIPAL ===================== -->
+    <div class="screen" id="onboard">
+      <img class="logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="Battle Grid">
+      <div class="ob-sub">Place ta flotte, puis coule tous les navires ennemis avant qu'on ne coule les tiens.</div>
+      <div class="ob-menu">
+        <button class="btn primary" id="playAIBtn">⚔️ Entraînement (vs IA)</button>
+        <button class="btn gold" id="playMultiBtn">🌐 Multijoueur 1v1</button>
+        <button class="btn ghost" id="leaderboardBtn">🏆 Classement</button>
+      </div>
+    </div>
+
+    <!-- ===================== FILE D'ATTENTE MULTI ===================== -->
+    <div class="screen hidden" id="queueScreen">
+      <div class="queueBox">
+        <div class="spinner"></div>
+        <div class="disp" style="font-size:16px;">Recherche d'un adversaire...</div>
+        <div class="instructions" id="queueSub">Appariement par niveau (MMR)</div>
+        <button class="btn ghost wide" id="cancelQueueBtn">Annuler</button>
+      </div>
+    </div>
+
+    <!-- ===================== ADVERSAIRE TROUVÉ ===================== -->
+    <div class="screen hidden" id="matchFoundScreen">
+      <div class="queueBox">
+        <div class="disp" style="font-size:16px;">Adversaire trouvé !</div>
+        <div class="opponentCard">
+          <img class="avatar" id="oppAvatar" src="" alt="">
+          <div>
+            <div class="name" id="oppName">-</div>
+            <div style="font-size:10px;opacity:.6;" id="oppMmr">-</div>
+          </div>
+          <img class="rankBadge" id="oppRankBadge" src="" alt="">
+        </div>
+        <button class="btn primary wide" id="proceedPlacementBtn">Placer ma flotte</button>
+      </div>
+    </div>
+
+    <!-- ===================== CLASSEMENT ===================== -->
+    <div class="screen hidden" id="leaderboardScreen">
+      <div class="instructions">Meilleurs joueurs classés par MMR (Elo).</div>
+      <div id="leaderboardList" style="display:flex;flex-direction:column;gap:6px;width:100%;max-width:380px;"></div>
+    </div>
+
+    <!-- ===================== PLACEMENT ===================== -->
+    <div class="screen hidden" id="placeScreen">
+      <div class="instructions">Glisse chaque navire sur ta grille. Touche ⟳ pour pivoter. Touche un navire posé pour le reprendre.</div>
+      <div class="boardPanel">
+        <div class="boardTitle">Votre flotte</div>
+        <div class="colLabels"><div class="labelSpacer" id="spacer1"></div><div class="rowArea" style="flex:1;" id="colLabelsRow"></div></div>
+        <div class="rowArea">
+          <div class="rowLabels" id="rowLabelsCol"></div>
+          <div class="cellGrid" id="placeBoard"></div>
+        </div>
+      </div>
+      <div id="tray"></div>
+      <div class="rowActions">
+        <button class="btn ghost" id="randomBtn">🎲 Aléatoire</button>
+        <button class="btn ghost" id="clearBtn">✕ Effacer</button>
+      </div>
+    </div>
+
+    <!-- ===================== BATAILLE ===================== -->
+    <div class="screen hidden" id="battleScreen">
+      <div id="turnBanner"><span class="dot"></span><span id="turnText">À vous de tirer</span></div>
+      <div class="fleetRow" id="enemyFleetRow"></div>
+      <div id="enemyBoardWrap">
+        <div class="boardPanel">
+          <div class="boardTitle" id="enemyBoardTitle">Flotte ennemie</div>
+          <div class="colLabels"><div class="labelSpacer" id="spacer2"></div><div class="rowArea" style="flex:1;" id="colLabelsRow2"></div></div>
+          <div class="rowArea">
+            <div class="rowLabels" id="rowLabelsCol2"></div>
+            <div class="cellGrid" id="enemyBoard"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="footerBar" class="hidden">
+    <button class="btn primary" id="startBattleBtn" disabled>Lancer la bataille</button>
+  </div>
+
+  <div id="toastWrap"></div>
+
+  <div class="panel-overlay hidden" id="journalPanel">
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title disp">Journal</div><button class="iconBtn" id="journalClose">✕</button></div>
+      <div class="panel-body" id="journalBody"></div>
+    </div>
+  </div>
+
+  <div class="panel-overlay hidden" id="fleetPanel">
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title disp">Ma flotte</div><button class="iconBtn" id="fleetClose">✕</button></div>
+      <div class="panel-body" id="fleetBody" style="align-items:center;">
+        <div class="boardPanel mini">
+          <div class="colLabels"><div class="labelSpacer" id="spacer3"></div><div class="rowArea" style="flex:1;" id="colLabelsRow3"></div></div>
+          <div class="rowArea">
+            <div class="rowLabels" id="rowLabelsCol3"></div>
+            <div class="cellGrid" id="ownBoard"></div>
+          </div>
+        </div>
+        <div class="fleetRow" id="ownFleetRow" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="endOverlay" class="hidden">
+    <div class="end-emoji" id="endEmoji">🏆</div>
+    <div class="end-title" id="endTitle">Victoire</div>
+    <div class="end-stats" id="endStats"></div>
+    <button class="btn primary" id="replayBtn" style="flex:none; padding:14px 40px;">Retour au menu</button>
+  </div>
+
+</div>
+
+<script>
+  window.BG_CONFIG = {
+    shipDefs: {{ ship_defs | tojson }},
+    authenticated: {{ authenticated | tojson }},
+    user: {{ user_json | tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='js/game.js') }}"></script>
+</body>
+</html>
